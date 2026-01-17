@@ -1092,11 +1092,15 @@
                 body: formData
             });
 
+            // Clone response to avoid "body stream already read" error
+            const responseClone = response.clone();
+            
             if (!response.ok) {
                 let error;
                 try {
-                    error = await response.json();
+                    error = await responseClone.json();
                 } catch (e) {
+                    // If JSON parse fails, try text
                     const text = await response.text();
                     throw new Error(`API Error (${response.status}): ${text || response.statusText}`);
                 }

@@ -1,16 +1,8 @@
-const express = require('express');
 const multer = require('multer');
 const FormData = require('form-data');
 const fetch = require('node-fetch');
-const cors = require('cors');
 
-const app = express();
-
-// Middleware
-app.use(cors());
-app.use(express.json());
-
-// Configure multer for file uploads
+// Configure multer for file uploads (memory storage)
 const upload = multer({ 
     storage: multer.memoryStorage(),
     limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
@@ -20,8 +12,23 @@ const upload = multer({
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/speech-to-text';
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
-// Transcription endpoint
-app.post('/', upload.single('audio'), async (req, res) => {
+// Vercel serverless function handler
+module.exports = async (req, res) => {
+    // Set CORS headers
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    // Handle preflight
+    if (req.method === 'OPTIONS') {
+        return res.status(200).end();
+    }
+
+    // Only allow POST
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Method not allowed' });
+    }
+
     try {
         if (!ELEVENLABS_API_KEY) {
             return res.status(500).json({ 
@@ -29,144 +36,189 @@ app.post('/', upload.single('audio'), async (req, res) => {
             });
         }
 
-        if (!req.file) {
-            return res.status(400).json({ error: 'No audio file provided' });
-        }
-
-        const { entityDetection, keyterms, languageCode, diarize, tagAudioEvents } = req.body;
-
-        // Create FormData for ElevenLabs API
-        const formData = new FormData();
+        // Parse multipart form data manually for Vercel
+        const Busboy = require('busboy');
+        const busboy = Busboy({ headers: req.headers });
         
-        // Determine file extension from original name or mimetype
-        let filename = req.file.originalname || 'audio.webm';
-        let contentType = req.file.mimetype;
-        
-        // Ensure proper file extension
-        if (!filename.includes('.')) {
-            if (contentType === 'audio/mpeg' || contentType === 'audio/mp3') {
-                filename = 'audio.mp3';
-                contentType = 'audio/mpeg';
-            } else if (contentType === 'audio/wav' || contentType === 'audio/wave') {
-                filename = 'audio.wav';
-                contentType = 'audio/wav';
-            } else if (contentType === 'audio/mp4' || contentType === 'audio/m4a') {
-                filename = 'audio.m4a';
-                contentType = 'audio/mp4';
-            } else {
-                filename = 'audio.webm';
-                contentType = contentType || 'audio/webm';
-            }
-        }
-        
-        formData.append('file', req.file.buffer, {
-            filename: filename,
-            contentType: contentType
-        });
-        formData.append('model_id', 'scribe_v2');
+        let audioBuffer = null;
+        let audioFilename = 'audio.webm';
+        let audioContentType = 'audio/webm';
+        let entityDetection = null;
+        let keyterms = null;
+        let languageCode = null;
+        let diarize = false;
+        let tagAudioEvents = false;
 
-        // Add entity detection if provided
-        if (entityDetection) {
-            try {
-                const entityTypes = JSON.parse(entityDetection);
-                if (Array.isArray(entityTypes) && entityTypes.length > 0) {
-                    formData.append('entity_detection', JSON.stringify(entityTypes));
-                }
-            } catch (e) {
-                console.warn('Invalid entity_detection format:', e.message);
-            }
-        }
-
-        // Add keyterms if provided
-        if (keyterms) {
-            try {
-                const keytermsArray = JSON.parse(keyterms);
-                if (Array.isArray(keytermsArray) && keytermsArray.length > 0) {
-                    if (keytermsArray.length > 100) {
-                        return res.status(400).json({ 
-                            error: 'Maximum 100 keyterms allowed' 
-                        });
-                    }
+        return new Promise((resolve, reject) => {
+            busboy.on('file', (name, file, info) => {
+                if (name === 'audio') {
+                    const chunks = [];
+                    audioFilename = info.filename || 'audio.webm';
+                    audioContentType = info.mimeType || 'audio/webm';
                     
-                    // Validate and filter keyterms
-                    const validKeyterms = [];
-                    for (const term of keytermsArray) {
-                        const trimmedTerm = String(term).trim();
-                        if (trimmedTerm.length === 0) continue;
-                        if (trimmedTerm.length > 50) {
-                            console.warn(`Keyterm "${trimmedTerm}" exceeds 50 characters, skipping`);
-                            continue;
-                        }
-                        validKeyterms.push(trimmedTerm);
-                    }
+                    file.on('data', (data) => {
+                        chunks.push(data);
+                    });
                     
-                    if (validKeyterms.length > 0) {
-                        // Send each keyterm as separate form field
-                        validKeyterms.forEach((term) => {
-                            formData.append('keyterms', term);
-                        });
-                    }
+                    file.on('end', () => {
+                        audioBuffer = Buffer.concat(chunks);
+                    });
+                } else {
+                    file.resume();
                 }
-            } catch (e) {
-                console.warn('Invalid keyterms format:', e.message);
-            }
-        }
-
-        // Add language code if provided
-        if (languageCode && languageCode !== '') {
-            formData.append('language_code', languageCode);
-        }
-
-        // Add optional parameters
-        if (diarize === 'true' || diarize === true) {
-            formData.append('diarize', 'true');
-        }
-
-        if (tagAudioEvents === 'true' || tagAudioEvents === true) {
-            formData.append('tag_audio_events', 'true');
-        }
-
-        // Call ElevenLabs API
-        const response = await fetch(ELEVENLABS_API_URL, {
-            method: 'POST',
-            headers: {
-                'xi-api-key': ELEVENLABS_API_KEY
-            },
-            body: formData
-        });
-
-        if (!response.ok) {
-            let errorData;
-            const responseText = await response.text();
-            
-            try {
-                errorData = JSON.parse(responseText);
-            } catch (e) {
-                errorData = { message: responseText || `HTTP ${response.status}: ${response.statusText}` };
-            }
-
-            const errorMessage = errorData.detail?.message || 
-                                errorData.message || 
-                                errorData.error?.message ||
-                                `API Error: ${response.status} ${response.statusText}`;
-            
-            return res.status(response.status).json({ 
-                error: errorMessage,
-                details: errorData.detail || errorData
             });
-        }
 
-        const result = await response.json();
-        res.json(result);
+            busboy.on('field', (name, value) => {
+                if (name === 'entityDetection') {
+                    try {
+                        entityDetection = JSON.parse(value);
+                    } catch (e) {
+                        // Ignore invalid JSON
+                    }
+                } else if (name === 'keyterms') {
+                    try {
+                        keyterms = JSON.parse(value);
+                    } catch (e) {
+                        // Ignore invalid JSON
+                    }
+                } else if (name === 'languageCode') {
+                    languageCode = value || null;
+                } else if (name === 'diarize') {
+                    diarize = value === 'true' || value === true;
+                } else if (name === 'tagAudioEvents') {
+                    tagAudioEvents = value === 'true' || value === true;
+                }
+            });
 
+            busboy.on('finish', async () => {
+                try {
+                    if (!audioBuffer) {
+                        return resolve(res.status(400).json({ error: 'No audio file provided' }));
+                    }
+
+                    // Create FormData for ElevenLabs API
+                    const formData = new FormData();
+                    
+                    // Determine file extension
+                    let filename = audioFilename;
+                    if (!filename.includes('.')) {
+                        if (audioContentType === 'audio/mpeg' || audioContentType === 'audio/mp3') {
+                            filename = 'audio.mp3';
+                            audioContentType = 'audio/mpeg';
+                        } else if (audioContentType === 'audio/wav' || audioContentType === 'audio/wave') {
+                            filename = 'audio.wav';
+                            audioContentType = 'audio/wav';
+                        } else if (audioContentType === 'audio/mp4' || audioContentType === 'audio/m4a') {
+                            filename = 'audio.m4a';
+                            audioContentType = 'audio/mp4';
+                        } else {
+                            filename = 'audio.webm';
+                            audioContentType = audioContentType || 'audio/webm';
+                        }
+                    }
+                    
+                    formData.append('file', audioBuffer, {
+                        filename: filename,
+                        contentType: audioContentType
+                    });
+                    formData.append('model_id', 'scribe_v2');
+
+                    // Add entity detection if provided
+                    if (entityDetection && Array.isArray(entityDetection) && entityDetection.length > 0) {
+                        formData.append('entity_detection', JSON.stringify(entityDetection));
+                    }
+
+                    // Add keyterms if provided
+                    if (keyterms && Array.isArray(keyterms) && keyterms.length > 0) {
+                        if (keyterms.length > 100) {
+                            return resolve(res.status(400).json({ 
+                                error: 'Maximum 100 keyterms allowed' 
+                            }));
+                        }
+                        
+                        // Validate and filter keyterms
+                        const validKeyterms = [];
+                        for (const term of keyterms) {
+                            const trimmedTerm = String(term).trim();
+                            if (trimmedTerm.length === 0) continue;
+                            if (trimmedTerm.length > 50) {
+                                continue;
+                            }
+                            validKeyterms.push(trimmedTerm);
+                        }
+                        
+                        if (validKeyterms.length > 0) {
+                            validKeyterms.forEach((term) => {
+                                formData.append('keyterms', term);
+                            });
+                        }
+                    }
+
+                    // Add language code if provided
+                    if (languageCode && languageCode !== '') {
+                        formData.append('language_code', languageCode);
+                    }
+
+                    // Add optional parameters
+                    if (diarize) {
+                        formData.append('diarize', 'true');
+                    }
+
+                    if (tagAudioEvents) {
+                        formData.append('tag_audio_events', 'true');
+                    }
+
+                    // Call ElevenLabs API
+                    const response = await fetch(ELEVENLABS_API_URL, {
+                        method: 'POST',
+                        headers: {
+                            'xi-api-key': ELEVENLABS_API_KEY
+                        },
+                        body: formData
+                    });
+
+                    // Read response once
+                    const responseText = await response.text();
+
+                    if (!response.ok) {
+                        let errorData;
+                        try {
+                            errorData = JSON.parse(responseText);
+                        } catch (e) {
+                            errorData = { message: responseText || `HTTP ${response.status}: ${response.statusText}` };
+                        }
+
+                        const errorMessage = errorData.detail?.message || 
+                                            errorData.message || 
+                                            errorData.error?.message ||
+                                            `API Error: ${response.status} ${response.statusText}`;
+                        
+                        return resolve(res.status(response.status).json({ 
+                            error: errorMessage,
+                            details: errorData.detail || errorData
+                        }));
+                    }
+
+                    // Parse successful response
+                    const result = JSON.parse(responseText);
+                    return resolve(res.json(result));
+
+                } catch (error) {
+                    console.error('❌ Transcription error:', error);
+                    return resolve(res.status(500).json({ 
+                        error: 'Internal server error', 
+                        message: error.message
+                    }));
+                }
+            });
+
+            req.pipe(busboy);
+        });
     } catch (error) {
-        console.error('❌ Transcription error:', error);
-        res.status(500).json({ 
+        console.error('❌ Server error:', error);
+        return res.status(500).json({ 
             error: 'Internal server error', 
             message: error.message
         });
     }
-});
-
-// Export for Vercel serverless function
-module.exports = app;
+};
