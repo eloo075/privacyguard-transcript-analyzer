@@ -1,0 +1,23 @@
+node_modules/
+.env
+*.log
+.DS_Store
+*.webm
+*.mp3
+*.wav
+*.m4a
+*.flac
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Temporary files
+*.tmp
+*.temp

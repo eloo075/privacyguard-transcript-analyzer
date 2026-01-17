@@ -1,0 +1,31 @@
+{
+  "name": "privacyguard-transcript-analyzer",
+  "version": "1.0.0",
+  "description": "AI-Powered Transcript Analyzer using ElevenLabs Scribe v2 with Entity Detection and Keyterm Prompting",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": [
+    "speech-to-text",
+    "transcription",
+    "privacy",
+    "entity-detection",
+    "elevenlabs",
+    "scribe-v2"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "form-data": "^4.0.0",
+    "node-fetch": "^2.7.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  }
+}
