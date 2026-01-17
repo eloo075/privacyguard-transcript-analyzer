@@ -182,7 +182,7 @@
             overflow: hidden;
             min-height: 200px;
             display: flex;
-            flex-direction: column;
+          flex-direction: column;
             align-items: center;
             justify-content: center;
         }
@@ -257,7 +257,7 @@
         .file-info-name {
             font-size: 1.1rem;
             font-weight: 600;
-            color: var(--text);
+        color: var(--text);
             margin-bottom: 8px;
             word-break: break-word;
         }
@@ -750,21 +750,21 @@
                         <p style="font-size: 0.9rem; color: var(--text-muted); margin-top: 10px;">
                             Supports MP3, WAV, M4A, FLAC
                         </p>
-                    </div>
+              </div>
                     <div class="file-info">
                         <div class="file-info-icon">🎵</div>
                         <div class="file-info-name" id="fileName">No file selected</div>
                         <div class="file-info-size" id="fileSize"></div>
                         <div class="file-info-change" onclick="document.getElementById('fileInput').click()">Change file</div>
-                    </div>
+              </div>
                     <input type="file" id="fileInput" accept="audio/*">
-                </div>
+            </div>
 
                 <div class="recording-controls">
                     <button class="record-btn" id="recordBtn">🎤</button>
                     <div class="recording-time" id="recordingTime" style="display: none;">00:00</div>
                     <button class="btn btn-secondary" id="stopRecordBtn" style="display: none;">Stop Recording</button>
-              </div>
+          </div>
 
                 <div class="settings-group">
                     <label>Entity Detection Categories</label>
@@ -810,13 +810,13 @@
                             <span>Address</span>
                         </label>
             </div>
-          </div>
+            </div>
 
                 <div class="settings-group">
                     <label for="keyterms">Keyterm Prompting (comma-separated, up to 100 terms, max 50 chars each)</label>
                     <textarea id="keyterms" placeholder="e.g., medical terms, product names, technical jargon, company names..."></textarea>
                     <small>Add domain-specific terms to improve transcription accuracy. Each term must be less than 50 characters.</small>
-                </div>
+          </div>
 
                 <div class="settings-group">
                     <label for="languageCode">Language</label>
@@ -889,7 +889,8 @@
 
     <script>
         // Configuration
-        const API_BASE_URL = window.location.origin; // Use same origin as the page
+        // Use same origin as the page (works for both localhost and Vercel)
+        const API_BASE_URL = window.location.origin;
 
         // State
         let audioBlob = null;

@@ -3,19 +3,12 @@ const multer = require('multer');
 const FormData = require('form-data');
 const fetch = require('node-fetch');
 const cors = require('cors');
-const path = require('path');
-require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
-// Vercel requires this export for serverless functions
-module.exports = app;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
-app.use(express.static('.'));
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -23,30 +16,12 @@ const upload = multer({
     limits: { fileSize: 100 * 1024 * 1024 } // 100MB limit
 });
 
-// ElevenLabs API endpoint - Batch transcription
-// Based on docs: https://elevenlabs.io/docs/api-reference/speech-to-text
-const ELEVENLABS_API_BASE = 'https://api.elevenlabs.io/v1';
-// Try alternative endpoint formats - the API might use a different path
-const ELEVENLABS_API_URL = `${ELEVENLABS_API_BASE}/speech-to-text`;
+// ElevenLabs API endpoint
+const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1/speech-to-text';
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 
-if (!ELEVENLABS_API_KEY) {
-    console.warn('⚠️  WARNING: ELEVENLABS_API_KEY not found in environment variables!');
-    console.warn('   Please create a .env file with: ELEVENLABS_API_KEY=your_key_here');
-}
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
-        message: 'PrivacyGuard API is running',
-        apiKeySet: !!ELEVENLABS_API_KEY,
-        apiKeyPrefix: ELEVENLABS_API_KEY ? ELEVENLABS_API_KEY.substring(0, 10) + '...' : 'not set'
-    });
-});
-
 // Transcription endpoint
-app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
+app.post('/', upload.single('audio'), async (req, res) => {
     try {
         if (!ELEVENLABS_API_KEY) {
             return res.status(500).json({ 
@@ -89,9 +64,6 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
             contentType: contentType
         });
         formData.append('model_id', 'scribe_v2');
-        
-        console.log('   Using filename:', filename);
-        console.log('   Using content type:', contentType);
 
         // Add entity detection if provided
         if (entityDetection) {
@@ -129,15 +101,10 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
                     }
                     
                     if (validKeyterms.length > 0) {
-                        // ElevenLabs API expects keyterms as an array
-                        // Try sending each keyterm as a separate form field with same name
-                        // This creates an array when parsed by the API
+                        // Send each keyterm as separate form field
                         validKeyterms.forEach((term) => {
                             formData.append('keyterms', term);
                         });
-                        console.log('   Keyterms count:', validKeyterms.length);
-                        console.log('   Keyterms:', validKeyterms.join(', '));
-                        console.log('   Sending each keyterm as separate form field');
                     }
                 }
             } catch (e) {
@@ -160,36 +127,17 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
         }
 
         // Call ElevenLabs API
-        // Correct endpoint: /v1/speech-to-text (NOT /convert)
-        const apiUrl = ELEVENLABS_API_URL;
-        console.log('📤 Sending request to ElevenLabs API...');
-        console.log('   Full URL:', apiUrl);
-        console.log('   File size:', req.file.size, 'bytes');
-        console.log('   File type:', req.file.mimetype);
-        console.log('   Entity detection:', entityDetection || 'none');
-        console.log('   Keyterms:', keyterms || 'none');
-        console.log('   API Key prefix:', ELEVENLABS_API_KEY ? ELEVENLABS_API_KEY.substring(0, 10) + '...' : 'NOT SET');
-
-        let response;
-        try {
-            response = await fetch(apiUrl, {
-                method: 'POST',
-                headers: {
-                    'xi-api-key': ELEVENLABS_API_KEY
-                },
-                body: formData
-            });
-        } catch (fetchError) {
-            console.error('❌ Fetch error:', fetchError.message);
-            throw new Error(`Network error: ${fetchError.message}`);
-        }
-
-        console.log('📥 Response status:', response.status, response.statusText);
+        const response = await fetch(ELEVENLABS_API_URL, {
+            method: 'POST',
+            headers: {
+                'xi-api-key': ELEVENLABS_API_KEY
+            },
+            body: formData
+        });
 
         if (!response.ok) {
             let errorData;
             const responseText = await response.text();
-            console.error('❌ API Error Response:', responseText);
             
             try {
                 errorData = JSON.parse(responseText);
@@ -202,8 +150,6 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
                                 errorData.error?.message ||
                                 `API Error: ${response.status} ${response.statusText}`;
             
-            console.error('❌ Error details:', errorMessage);
-            
             return res.status(response.status).json({ 
                 error: errorMessage,
                 details: errorData.detail || errorData
@@ -215,21 +161,12 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 
     } catch (error) {
         console.error('❌ Transcription error:', error);
-        console.error('   Error stack:', error.stack);
         res.status(500).json({ 
             error: 'Internal server error', 
-            message: error.message,
-            details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+            message: error.message
         });
     }
 });
 
-// Serve the main page
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
-});
-
-app.listen(PORT, () => {
-    console.log(`🚀 PrivacyGuard server running on http://localhost:${PORT}`);
-    console.log(`📝 Make sure ELEVENLABS_API_KEY is set in your .env file`);
-});
+// Export for Vercel serverless function
+module.exports = app;
